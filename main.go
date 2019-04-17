@@ -28,7 +28,7 @@ const (
 	INDEX    = "around"
 	TYPE     = "post"
 	DISTANCE = "200km"
-	ES_URL   = "http://35.202.235.17:9200"
+	ES_URL   = "http://35.192.229.163:9200"
 )
 
 // Variable with capital letter is exported, like public
