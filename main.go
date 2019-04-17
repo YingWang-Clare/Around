@@ -91,13 +91,12 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprintf(w, "Post received: %s\n", p.Message) // responseWriter will be returned to web browser by the service
 	// Fprintf() is to write something to the specific object
-
-	spamSet := initSpamSet()
-	if !containsSpam(p, spamSet) {
+	// Filter the post which contains spam words
+	if !containsSpam(&p.Message) {
 		id := uuid.New()
 		saveToES(&p, id)
 	} else {
-		fmt.Printf("Post %s contains spam words, not allowed to post!", p.Message)
+		fmt.Printf("Post %s contains spam words, not allowed to post!\n", p.Message)
 	}
 }
 
@@ -172,12 +171,11 @@ func handlerSearch(w http.ResponseWriter, r *http.Request) {
 	for _, item := range searchResult.Each(reflect.TypeOf(typ)) { // instance of
 		p := item.(Post) // p = (Post) item
 		fmt.Printf("Post by %s: %s at lat %v and lon %v\n", p.User, p.Message, p.Location.Lat, p.Location.Lon)
-		// TODO(student homework): Perform filtering based on keywords such as web spam etc.
-		spamSet := initSpamSet()
-		if !containsSpam(p, spamSet) {
+		// Perform filtering based on keywords such as web spam etc.
+		if !containsSpam(&p.Message) {
 			ps = append(ps, p)
 		} else {
-			fmt.Printf("Post %s contains spam words, not allowed to display!", p.Message)
+			fmt.Printf("Post %s contains spam words, not allowed to display!\n", p.Message)
 		}
 	}
 	js, err := json.Marshal(ps)
@@ -191,19 +189,19 @@ func handlerSearch(w http.ResponseWriter, r *http.Request) {
 	w.Write(js)
 }
 
-func initSpamSet() map[string]bool {
-	m := make(map[string]bool)
-	m["shit"] = true
-	m["fuck"] = true
-	m["bitch"] = true
-	return m
+func initSpamWordsSet() []string {
+	filteredWords := []string{
+		"fuck",
+		"shit",
+		"bitch",
+	}
+	return filteredWords
 }
 
-func containsSpam(p Post, set map[string]bool) bool {
-	tokens := strings.Fields(p.Message)
-	for _, token := range tokens {
-		_, found := set[token]
-		if found {
+func containsSpam(s *string) bool {
+	spamSet := initSpamWordsSet()
+	for _, spamWord := range spamSet {
+		if strings.Contains(*s, spamWord) {
 			return true
 		}
 	}
