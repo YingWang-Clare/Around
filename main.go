@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
+
+	"cloud.google.com/go/storage"
 
 	"github.com/pborman/uuid"
 	elastic "gopkg.in/olivere/elastic.v3"
@@ -22,13 +26,15 @@ type Post struct {
 	User     string   `json:"user"`
 	Message  string   `json:"message"`
 	Location Location `json:"location"`
+	Url      string   `json:"url"`
 }
 
 const (
-	INDEX    = "around"
-	TYPE     = "post"
-	DISTANCE = "200km"
-	ES_URL   = "http://35.192.229.163:9200"
+	INDEX       = "around"
+	TYPE        = "post"
+	DISTANCE    = "200km"
+	ES_URL      = "http://35.224.211.36:9200"
+	BUCKET_NAME = "post-images-237801"
 )
 
 // Variable with capital letter is exported, like public
@@ -83,21 +89,89 @@ func main() {
 // json body's format should be exactly matched with the Post struct's format
 
 func handlerPost(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Received one post request.")
-	decoder := json.NewDecoder(r.Body) // r.Body contains json information of user's request
-	var p Post
-	if err := decoder.Decode(&p); err != nil { // err only affects within if statement, & passes the address to Decode()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Header", "Content-Type,Authorization")
+
+	r.ParseMultipartForm(32 << 20) // 32MB
+
+	// Parse form data
+	fmt.Printf("Received one post request %s\n", r.FormValue("message"))
+	lat, _ := strconv.ParseFloat(r.FormValue("lat"), 64)
+	lon, _ := strconv.ParseFloat(r.FormValue("lon"), 64)
+
+	p := &Post{
+		User:    "1111",
+		Message: r.FormValue("message"),
+		Location: Location{
+			Lat: lat,
+			Lon: lon,
+		},
+	}
+
+	id := uuid.New()
+
+	file, _, err := r.FormFile("image")
+	if err != nil {
+		http.Error(w, "GCS is not setup", http.StatusInternalServerError)
+		fmt.Printf("GCS is not setup %v\n", err)
 		panic(err)
 	}
-	fmt.Fprintf(w, "Post received: %s\n", p.Message) // responseWriter will be returned to web browser by the service
-	// Fprintf() is to write something to the specific object
-	// Filter the post which contains spam words
-	if !containsSpam(&p.Message) {
-		id := uuid.New()
-		saveToES(&p, id)
-	} else {
-		fmt.Printf("Post %s contains spam words, not allowed to post!\n", p.Message)
+	defer file.Close()
+
+	ctx := context.Background() // context reads the credential then can access the data stored in GCS
+
+	_, attrs, err := saveToGCS(ctx, file, BUCKET_NAME, id)
+
+	if err != nil {
+		http.Error(w, "GCS is not setup", http.StatusInternalServerError)
+		fmt.Printf("GCS is not setup %v\n", err)
+		panic(err)
 	}
+
+	p.Url = attrs.MediaLink
+
+	// save to elastic search
+	saveToES(p, id)
+
+	// Filter the post which contains spam words
+	// if !containsSpam(&p.Message) {
+	// 	id := uuid.New()
+	// 	saveToES(&p, id)
+	// } else {
+	// 	fmt.Printf("Post %s contains spam words, not allowed to post!\n", p.Message)
+	// }
+}
+
+func saveToGCS(ctx context.Context, r io.Reader, bucketName string, name string) (*storage.ObjectHandle, *storage.ObjectAttrs, error) {
+	// create a new client
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	// create a bucket instance
+	bucket := client.Bucket(bucketName)
+	// check if the bucket created exists
+	if _, err := bucket.Attrs(ctx); err != nil {
+		return nil, nil, err
+	}
+	// write files to the bucket
+	obj := bucket.Object(name)
+	wc := obj.NewWriter(ctx)
+	if _, err := io.Copy(wc, r); err != nil {
+		return nil, nil, err
+	}
+	if err := wc.Close(); err != nil {
+		return nil, nil, err
+	}
+	// set Access Control List
+	if err := obj.ACL().Set(ctx, storage.AllUsers, storage.RoleReader); err != nil {
+		return nil, nil, err
+	}
+	// get url to the file
+	attrs, err := obj.Attrs(ctx)
+	fmt.Printf("Post is saved to GCS: %s\n", attrs.MediaLink)
+	return obj, attrs, err
 }
 
 func saveToES(p *Post, id string) {
@@ -106,7 +180,6 @@ func saveToES(p *Post, id string) {
 	if err != nil {
 		panic(err)
 	}
-
 	_, err = es_client.Index().
 		Index(INDEX).
 		Type(TYPE).
@@ -117,7 +190,6 @@ func saveToES(p *Post, id string) {
 	if err != nil {
 		panic(err)
 	}
-
 	fmt.Printf("Post is saved to index: %s\n", p.Message)
 }
 
