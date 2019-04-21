@@ -11,6 +11,10 @@ import (
 	"strconv"
 	"strings"
 
+	jwtmiddleware "github.com/auth0/go-jwt-middleware"
+	"github.com/dgrijalva/jwt-go"
+	"github.com/gorilla/mux"
+
 	"cloud.google.com/go/storage"
 
 	"github.com/pborman/uuid"
@@ -33,11 +37,13 @@ const (
 	INDEX       = "around"
 	TYPE        = "post"
 	DISTANCE    = "200km"
-	ES_URL      = "http://35.224.211.36:9200"
+	ES_URL      = "http://35.222.241.219:9200"
 	BUCKET_NAME = "post-images-237801"
 )
 
 // Variable with capital letter is exported, like public
+
+var mySigningKey = []byte("long-secret")
 
 func main() {
 	// Create a client
@@ -73,8 +79,28 @@ func main() {
 	}
 
 	fmt.Println("Started-service")
-	http.HandleFunc("/post", handlerPost)     // endpoint and doPost
-	http.HandleFunc("/search", handlerSearch) // endpoint and doGet
+
+	r := mux.NewRouter()
+
+	var jwtMiddleware = jwtmiddleware.New(jwtmiddleware.Options{
+		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
+			return mySigningKey, nil
+		},
+		SigningMethod: jwt.SigningMethodHS256,
+	})
+	//Recall that: Original version: http.HandlerFunc("/post", handlerPost)
+	// Here we use jwtMiddleware before executing http.HanderFunc(...),
+	// since jwtMiddleware can check if client's token is valid or not.
+	// If invalid, we will reject them.
+	r.Handle("/post", jwtMiddleware.Handler(http.HandlerFunc(handlerPost))).Methods("POST")    // endpoint and doPost
+	r.Handle("/search", jwtMiddleware.Handler(http.HandlerFunc(handlerSearch))).Methods("GET") // endpoint and doPost
+
+	// Users haven't got their tokens yet, no need to use jwtMiddleware for /login and /signup.
+	r.Handle("/login", http.HandlerFunc(loginHandler)).Methods("POST")
+	r.Handle("/signup", http.HandlerFunc(signupHandler)).Methods("POST")
+
+	http.Handle("/", r)
+
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
@@ -93,6 +119,13 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Header", "Content-Type,Authorization")
 
+	user := r.Context().Value("user")
+	claims := user.(*jwt.Token).Claims
+	username := claims.(jwt.MapClaims)["username"]
+
+	// 32 << 20 is the maxMemory param for ParseMultipartForm
+	// After you call ParseMultipartForm, the file will be saved in the server memory with maxMemory size.
+	// If the file size is larger than maxMemory, the rest of the data will be saved in a system temporary file.
 	r.ParseMultipartForm(32 << 20) // 32MB
 
 	// Parse form data
@@ -101,7 +134,7 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	lon, _ := strconv.ParseFloat(r.FormValue("lon"), 64)
 
 	p := &Post{
-		User:    "1111",
+		User:    username.(string),
 		Message: r.FormValue("message"),
 		Location: Location{
 			Lat: lat,
