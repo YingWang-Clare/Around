@@ -15,6 +15,7 @@ import (
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/mux"
 
+	"cloud.google.com/go/bigtable"
 	"cloud.google.com/go/storage"
 
 	"github.com/pborman/uuid"
@@ -39,6 +40,8 @@ const (
 	DISTANCE    = "200km"
 	ES_URL      = "http://35.222.241.219:9200"
 	BUCKET_NAME = "post-images-237801"
+	PROJECT_ID  = "around-237801"
+	BT_INSTANCE = "around-post"
 )
 
 // Variable with capital letter is exported, like public
@@ -167,6 +170,9 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	// save to elastic search
 	saveToES(p, id)
 
+	// save to BigTable
+	saveToBigTable(ctx, p, id, PROJECT_ID, BT_INSTANCE)
+
 	// Filter the post which contains spam words
 	// if !containsSpam(&p.Message) {
 	// 	id := uuid.New()
@@ -224,6 +230,30 @@ func saveToES(p *Post, id string) {
 		panic(err)
 	}
 	fmt.Printf("Post is saved to index: %s\n", p.Message)
+}
+
+func saveToBigTable(ctx context.Context, p *Post, id string, PROJECT_ID string, BT_INSTANCE string) {
+	btClient, err := bigtable.NewClient(ctx, PROJECT_ID, BT_INSTANCE)
+	if err != nil {
+		panic(err)
+		return
+	}
+
+	tbl := btClient.Open("post")
+	mut := bigtable.NewMutation()
+	t := bigtable.Now() // timestamp
+
+	mut.Set("post", "user", t, []byte(p.User)) // convert data to byte array
+	mut.Set("post", "message", t, []byte(p.Message))
+	mut.Set("location", "lat", t, []byte(strconv.FormatFloat(p.Location.Lat, 'f', -1, 64)))
+	mut.Set("location", "lon", t, []byte(strconv.FormatFloat(p.Location.Lon, 'f', -1, 64)))
+
+	err = tbl.Apply(ctx, id, mut) // apply changes to table
+	if err != nil {
+		panic(err)
+		return
+	}
+	fmt.Printf("Post is saved to BigTable : %s\n", p.Message)
 }
 
 func handlerSearch(w http.ResponseWriter, r *http.Request) {
