@@ -81,7 +81,7 @@ func main() {
 		}
 	}
 
-	fmt.Println("Started-service")
+	fmt.Println("Started-Service")
 
 	r := mux.NewRouter()
 
