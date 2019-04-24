@@ -171,15 +171,7 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	saveToES(p, id)
 
 	// save to BigTable
-	saveToBigTable(ctx, p, id, PROJECT_ID, BT_INSTANCE)
-
-	// Filter the post which contains spam words
-	// if !containsSpam(&p.Message) {
-	// 	id := uuid.New()
-	// 	saveToES(&p, id)
-	// } else {
-	// 	fmt.Printf("Post %s contains spam words, not allowed to post!\n", p.Message)
-	// }
+	// saveToBigTable(ctx, p, id, PROJECT_ID, BT_INSTANCE)
 }
 
 func saveToGCS(ctx context.Context, r io.Reader, bucketName string, name string) (*storage.ObjectHandle, *storage.ObjectAttrs, error) {
