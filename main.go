@@ -38,7 +38,7 @@ const (
 	INDEX       = "around"
 	TYPE        = "post"
 	DISTANCE    = "200km"
-	ES_URL      = "http://35.222.241.219:9200"
+	ES_URL      = "http://35.238.255.23:9200"
 	BUCKET_NAME = "post-images-237801"
 	PROJECT_ID  = "around-237801"
 	BT_INSTANCE = "around-post"
@@ -171,15 +171,7 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	saveToES(p, id)
 
 	// save to BigTable
-	saveToBigTable(ctx, p, id, PROJECT_ID, BT_INSTANCE)
-
-	// Filter the post which contains spam words
-	// if !containsSpam(&p.Message) {
-	// 	id := uuid.New()
-	// 	saveToES(&p, id)
-	// } else {
-	// 	fmt.Printf("Post %s contains spam words, not allowed to post!\n", p.Message)
-	// }
+	// saveToBigTable(ctx, p, id, PROJECT_ID, BT_INSTANCE)
 }
 
 func saveToGCS(ctx context.Context, r io.Reader, bucketName string, name string) (*storage.ObjectHandle, *storage.ObjectAttrs, error) {
